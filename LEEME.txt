@@ -12,3 +12,10 @@ El enlace permite descargar el archivo a cualquiera que lo tenga; compartelo sol
 
 El acceso remoto usa Cloudflare Quick Tunnels, un servicio temporal para pruebas sin garantia de disponibilidad.
 La velocidad depende de tu conexion de subida. El archivo se transmite desde tu ordenador y no se almacena en la nube.
+
+Para volver a generar el ejecutable desde el codigo fuente, instala Python y ejecuta estos comandos desde esta carpeta:
+
+	python -m pip install pyinstaller
+	pyinstaller --onefile --windowed --name GameTransfer --add-binary "cloudflared.exe;." transferencia_juegos.py
+
+El ejecutable se crea en dist\GameTransfer.exe e incluye Cloudflare Tunnel. No quites --add-binary: sin el, no se podran generar enlaces publicos.

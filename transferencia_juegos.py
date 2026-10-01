@@ -256,13 +256,16 @@ class AplicacionTransferencia(tk.Tk):
     def buscar_cloudflared(self):
         executable_name = "cloudflared.exe" if os.name == "nt" else "cloudflared"
         bundled_directory = getattr(sys, "_MEIPASS", None)
+        search_directories = []
         if bundled_directory:
-            bundled_executable = Path(bundled_directory) / executable_name
+            search_directories.append(Path(bundled_directory))
+        search_directories.append(Path(__file__).resolve().parent)
+        if getattr(sys, "frozen", False):
+            search_directories.append(Path(sys.executable).resolve().parent)
+        for directory in search_directories:
+            bundled_executable = directory / executable_name
             if bundled_executable.is_file():
                 return str(bundled_executable)
-        local_executable = Path(__file__).resolve().parent / executable_name
-        if local_executable.is_file():
-            return str(local_executable)
         return shutil.which(executable_name) or shutil.which("cloudflared")
 
     def iniciar_tunel(self):
