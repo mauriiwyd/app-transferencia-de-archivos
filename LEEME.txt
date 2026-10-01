@@ -2,6 +2,13 @@ GameTransfer para Windows
 
 1. Extrae todos los archivos del ZIP en una carpeta.
 2. Abre GameTransfer.exe con doble clic.
+3. Espera a que el panel indique que el enlace HTTPS publico esta listo.
+4. Comparte un archivo y copia el enlace. Tu amigo puede descargarlo desde otra red.
 
-No necesitas instalar Python para usar el ejecutable.
-El archivo transferencia_juegos.py es el código fuente y no hace falta abrirlo.
+No necesitas instalar Python. El archivo transferencia_juegos.py es el codigo fuente.
+Mantén GameTransfer abierto y el ordenador conectado a Internet hasta que termine la descarga.
+Los enlaces publicos son temporales: dejan de funcionar al cerrar la app y la URL cambia al reiniciarla.
+El enlace permite descargar el archivo a cualquiera que lo tenga; compartelo solo con personas de confianza.
+
+El acceso remoto usa Cloudflare Quick Tunnels, un servicio temporal para pruebas sin garantia de disponibilidad.
+La velocidad depende de tu conexion de subida. El archivo se transmite desde tu ordenador y no se almacena en la nube.

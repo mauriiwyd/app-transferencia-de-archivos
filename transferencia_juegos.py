@@ -4,12 +4,15 @@ import os
 import re
 import secrets
 import smtplib
-import socket
+import shutil
 import sqlite3
 import ssl
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
+from queue import Empty, Queue
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +26,7 @@ SERVER_PORT = 8765
 FREE_LINK_DAYS = 7
 PASSWORD_ITERATIONS = 310_000
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+TUNNEL_URL_PATTERN = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
 
 
 def app_data_directory():
@@ -216,10 +220,15 @@ class AplicacionTransferencia(tk.Tk):
         self.codigo_recuperacion = None
         self.correo_recuperacion = None
         self.expira_recuperacion = 0
-        self.ip_local = self.obtener_ip_local()
         self.error_servidor = None
         self.servidor = None
+        self.proceso_tunel = None
+        self.url_publica = None
+        self.estado_tunel = "Iniciando enlace público seguro..."
+        self.eventos_tunel = Queue()
         self.iniciar_servidor()
+        if self.servidor is not None:
+            self.iniciar_tunel()
 
         self.contenedor = tk.Frame(self, bg="#17231f")
         self.contenedor.pack(fill="both", expand=True, padx=36, pady=28)
@@ -235,26 +244,109 @@ class AplicacionTransferencia(tk.Tk):
         )
         self.mostrar_login()
 
-    @staticmethod
-    def obtener_ip_local():
-        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            probe.connect(("192.0.2.1", 80))
-            return probe.getsockname()[0]
-        except OSError:
-            return "127.0.0.1"
-        finally:
-            probe.close()
-
     def iniciar_servidor(self):
         try:
             handler = create_request_handler(self.database)
-            self.servidor = ThreadingHTTPServer(("0.0.0.0", SERVER_PORT), handler)
+            self.servidor = ThreadingHTTPServer(("127.0.0.1", SERVER_PORT), handler)
             threading.Thread(target=self.servidor.serve_forever, daemon=True).start()
         except OSError as error:
             self.error_servidor = str(error)
 
+    def buscar_cloudflared(self):
+        executable_name = "cloudflared.exe" if os.name == "nt" else "cloudflared"
+        bundled_directory = getattr(sys, "_MEIPASS", None)
+        if bundled_directory:
+            bundled_executable = Path(bundled_directory) / executable_name
+            if bundled_executable.is_file():
+                return str(bundled_executable)
+        local_executable = Path(__file__).resolve().parent / executable_name
+        if local_executable.is_file():
+            return str(local_executable)
+        return shutil.which(executable_name) or shutil.which("cloudflared")
+
+    def iniciar_tunel(self):
+        executable = self.buscar_cloudflared()
+        if executable is None:
+            self.estado_tunel = "Falta Cloudflare Tunnel (cloudflared)."
+            return
+        threading.Thread(
+            target=self._ejecutar_tunel, args=(executable,), daemon=True
+        ).start()
+        self.after(400, self.actualizar_estado_tunel)
+
+    def _ejecutar_tunel(self, executable):
+        command = [
+            executable,
+            "tunnel",
+            "--no-autoupdate",
+            "--url",
+            f"http://127.0.0.1:{SERVER_PORT}",
+        ]
+        creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            self.proceso_tunel = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                creationflags=creation_flags,
+            )
+            if self.proceso_tunel.stdout is None:
+                raise RuntimeError("No se pudo leer la salida de cloudflared.")
+            enlace_publicado = False
+            for line in self.proceso_tunel.stdout:
+                match = TUNNEL_URL_PATTERN.search(line) if not enlace_publicado else None
+                if match is not None:
+                    enlace_publicado = True
+                    self.eventos_tunel.put(("ready", match.group(0)))
+            if self.proceso_tunel.poll() is not None:
+                self.eventos_tunel.put(
+                    ("error", "Cloudflare Tunnel se cerró antes de crear el enlace.")
+                )
+        except (OSError, RuntimeError) as error:
+            self.eventos_tunel.put(("error", str(error)))
+
+    def actualizar_estado_tunel(self):
+        try:
+            while True:
+                status, value = self.eventos_tunel.get_nowait()
+                if status == "ready":
+                    self.url_publica = value
+                    self.estado_tunel = "Enlace público HTTPS listo."
+                else:
+                    self.url_publica = None
+                    self.estado_tunel = f"No se pudo crear el enlace público: {value}"
+        except Empty:
+            pass
+
+        if hasattr(self, "estado_tunel_label") and self.estado_tunel_label.winfo_exists():
+            self.estado_tunel_label.configure(text=self.texto_estado_red())
+        if self.winfo_exists() and self.servidor is not None:
+            self.after(500, self.actualizar_estado_tunel)
+
+    def texto_estado_red(self):
+        if self.error_servidor:
+            return f"Servidor local no disponible: {self.error_servidor}"
+        if self.url_publica:
+            return (
+                f"Acceso desde Internet listo: {self.url_publica}\n"
+                "Mantén esta aplicación y el ordenador encendidos durante la descarga."
+            )
+        return (
+            f"{self.estado_tunel}\n"
+            "Para descargas remotas, el ordenador debe permanecer encendido y conectado a Internet."
+        )
+
     def cerrar(self):
+        if self.proceso_tunel is not None and self.proceso_tunel.poll() is None:
+            self.proceso_tunel.terminate()
+            try:
+                self.proceso_tunel.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proceso_tunel.kill()
         if self.servidor is not None:
             self.servidor.shutdown()
             self.servidor.server_close()
@@ -505,11 +597,20 @@ class AplicacionTransferencia(tk.Tk):
             if not selection:
                 messagebox.showinfo("Selecciona un archivo", "Elige primero un archivo de la lista.", parent=self)
                 return
-            link = f"http://{self.ip_local}:{SERVER_PORT}/s/{selection[0]}"
+            if not self.url_publica:
+                messagebox.showerror(
+                    "Enlace público no disponible",
+                    f"{self.estado_tunel}\n\nComprueba la conexión a Internet y reinicia la app si el túnel no se inicia.",
+                    parent=self,
+                )
+                return
+            link = f"{self.url_publica}/s/{selection[0]}"
             self.clipboard_clear()
             self.clipboard_append(link)
             messagebox.showinfo(
-                "Enlace copiado", f"{link}\n\nTu amigo podrá abrirlo desde la misma red Wi-Fi.", parent=self
+                "Enlace público copiado",
+                f"{link}\n\nTu amigo puede descargarlo desde otra red. Mantén esta app y tu ordenador encendidos.",
+                parent=self,
             )
 
         def eliminar_enlace():
@@ -539,16 +640,12 @@ class AplicacionTransferencia(tk.Tk):
             font=("Segoe UI", 9), padx=12, pady=8
         ).pack(side="right")
 
-        network_note = (
-            f"Servidor activo en {self.ip_local}:{SERVER_PORT}. Mantén la aplicación y el ordenador encendidos.\n"
-            "Los enlaces gratuitos caducan en 7 días. El archivo original no se copia ni se borra."
-        )
-        if self.error_servidor:
-            network_note = f"No se pudo iniciar el servidor: {self.error_servidor}"
-        tk.Label(
-            self.contenedor, text=network_note, bg="#17231f", fg="#b5c3b8",
+        self.estado_tunel_label = tk.Label(
+            self.contenedor, text="", bg="#17231f", fg="#b5c3b8",
             font=("Segoe UI", 9), justify="left", wraplength=640
-        ).pack(anchor="w", pady=(16, 0))
+        )
+        self.estado_tunel_label.configure(text=self.texto_estado_red())
+        self.estado_tunel_label.pack(anchor="w", pady=(16, 0))
 
     def seleccionar_archivo(self):
         if self.error_servidor:
