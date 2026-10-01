@@ -1,0 +1,7 @@
+GameTransfer para Windows
+
+1. Extrae todos los archivos del ZIP en una carpeta.
+2. Abre GameTransfer.exe con doble clic.
+
+No necesitas instalar Python para usar el ejecutable.
+El archivo transferencia_juegos.py es el código fuente y no hace falta abrirlo.
