@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from queue import Empty, Queue
 from email.message import EmailMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -622,24 +623,47 @@ class AplicacionTransferencia(tk.Tk):
         controls = tk.Frame(self.contenedor, bg="#17231f")
         controls.pack(fill="x", pady=(12, 0))
 
-        def copiar_enlace():
+        def obtener_enlace():
             selection = table.selection()
             if not selection:
                 messagebox.showinfo("Selecciona un archivo", "Elige primero un archivo de la lista.", parent=self)
-                return
+                return None
             if not self.url_publica:
                 messagebox.showerror(
                     "Enlace público no disponible",
                     f"{self.estado_tunel}\n\nComprueba la conexión a Internet y reinicia la app si el túnel no se inicia.",
                     parent=self,
                 )
+                return None
+            return f"{self.url_publica}/s/{selection[0]}"
+
+        def copiar_enlace():
+            link = obtener_enlace()
+            if not link:
                 return
-            link = f"{self.url_publica}/s/{selection[0]}"
             self.clipboard_clear()
             self.clipboard_append(link)
             messagebox.showinfo(
                 "Enlace público copiado",
                 f"{link}\n\nTu amigo puede descargarlo desde otra red. Mantén esta app y tu ordenador encendidos.",
+                parent=self,
+            )
+
+        def enviar_whatsapp():
+            link = obtener_enlace()
+            if link:
+                webbrowser.open(f"https://wa.me/?text={quote(link, safe='')}")
+
+        def enviar_instagram():
+            link = obtener_enlace()
+            if not link:
+                return
+            self.clipboard_clear()
+            self.clipboard_append(link)
+            webbrowser.open("https://www.instagram.com/direct/inbox/")
+            messagebox.showinfo(
+                "Enlace copiado",
+                "Se copió el enlace. Pégalo en el chat de Instagram para enviarlo.",
                 parent=self,
             )
 
@@ -665,6 +689,16 @@ class AplicacionTransferencia(tk.Tk):
             controls, text="Eliminar enlace", command=eliminar_enlace, cursor="hand2",
             bg="#31443b", fg="#f4f2e9", relief="flat", bd=0,
             font=("Segoe UI", 9), padx=12, pady=8
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
+            controls, text="WhatsApp", command=enviar_whatsapp, cursor="hand2",
+            bg="#25d366", fg="#17231f", relief="flat", bd=0,
+            font=("Segoe UI", 9, "bold"), padx=12, pady=8
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
+            controls, text="Instagram", command=enviar_instagram, cursor="hand2",
+            bg="#c45a78", fg="#f4f2e9", relief="flat", bd=0,
+            font=("Segoe UI", 9, "bold"), padx=12, pady=8
         ).pack(side="left", padx=(8, 0))
         tk.Button(
             controls, text="Cerrar sesión", command=self.mostrar_login, cursor="hand2",
