@@ -558,6 +558,22 @@ class AplicacionTransferencia(tk.Tk):
         self.limpiar_pantalla()
         self.titulo("Tus archivos", f"Sesión: {self.usuario_actual}")
 
+        shares = self.database.list_shares(self.usuario_actual)
+        total_size = sum(share["file_size"] for share in shares)
+        summary = tk.Label(
+            self.contenedor,
+            text=f"{len(shares)} archivos compartidos  ·  {format_size(total_size)} en total",
+            bg="#17231f", fg="#b5c3b8", font=("Segoe UI", 9), anchor="w"
+        )
+        summary.pack(fill="x", pady=(0, 12))
+
+        search = tk.Entry(
+            self.contenedor, font=("Segoe UI", 10), relief="flat",
+            bg="#24332d", fg="#f4f2e9", insertbackground="#f4f2e9"
+        )
+        search.insert(0, "Buscar archivos...")
+        search.pack(fill="x", ipady=8, pady=(0, 12))
+
         actions = tk.Frame(self.contenedor, bg="#17231f")
         actions.pack(fill="x", pady=(0, 14))
         tk.Button(
@@ -582,12 +598,26 @@ class AplicacionTransferencia(tk.Tk):
         table.column("size", width=100, anchor="e")
         table.column("expires", width=130, anchor="center")
         table.pack(fill="both", expand=True)
-        for share in self.database.list_shares(self.usuario_actual):
-            table.insert(
-                "", "end", iid=share["code"],
-                values=(share["file_name"], format_size(share["file_size"]),
-                        time.strftime("%d/%m/%Y", time.localtime(share["expires_at"])))
-            )
+
+        def actualizar_lista(_value=None):
+            del _value
+            query = search.get().strip().casefold()
+            if query == "buscar archivos...":
+                query = ""
+            for item in table.get_children():
+                table.delete(item)
+            for share in shares:
+                if query not in share["file_name"].casefold():
+                    continue
+                table.insert(
+                    "", "end", iid=share["code"],
+                    values=(share["file_name"], format_size(share["file_size"]),
+                            time.strftime("%d/%m/%Y", time.localtime(share["expires_at"])))
+                )
+
+        search.bind("<KeyRelease>", actualizar_lista)
+        search.bind("<FocusIn>", lambda _event: search.delete(0, "end") if search.get() == "Buscar archivos..." else None)
+        actualizar_lista()
 
         controls = tk.Frame(self.contenedor, bg="#17231f")
         controls.pack(fill="x", pady=(12, 0))
@@ -612,6 +642,8 @@ class AplicacionTransferencia(tk.Tk):
                 f"{link}\n\nTu amigo puede descargarlo desde otra red. Mantén esta app y tu ordenador encendidos.",
                 parent=self,
             )
+
+        table.bind("<Double-1>", lambda _event: copiar_enlace())
 
         def eliminar_enlace():
             selection = table.selection()
